@@ -12,14 +12,15 @@ El archivo test.sql contiene un script que crea una pequeña biblioteca con auto
 Debes crear una base de datos a partir de este script y realizar operaciones sobre ella.
 """
 
-import sqlite3
 import os
-from typing import List, Tuple, Dict, Any, Optional
+import sqlite3
+from typing import Any, Dict, List, Optional, Tuple
 
 # Ruta al archivo SQL
-SQL_FILE_PATH = os.path.join(os.path.dirname(__file__), 'test.sql')
+SQL_FILE_PATH = os.path.join(os.path.dirname(__file__), "test.sql")
 # Ruta para la base de datos SQLite
-DB_PATH = os.path.join(os.path.dirname(__file__), 'biblioteca.db')
+DB_PATH = os.path.join(os.path.dirname(__file__), "biblioteca.db")
+
 
 def crear_bd_desde_sql() -> sqlite3.Connection:
     """
@@ -35,7 +36,37 @@ def crear_bd_desde_sql() -> sqlite3.Connection:
     # 4. Ejecuta el script SQL completo
     # 5. Haz commit de los cambios
     # 6. Devuelve la conexión
-    pass
+
+    try:
+        # 1. Si el archivo de base de datos existe, elimínalo
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+
+        # 2. Conecta a la base de datos (se creará si no existe)
+        conexion = sqlite3.connect(DB_PATH)
+
+        # 3. Lee el contenido del archivo SQL
+        if os.path.exists(SQL_FILE_PATH):
+            with open(SQL_FILE_PATH, "r", encoding="utf-8") as archivo_sql:
+                script_sql = archivo_sql.read()
+
+            # 4. Ejecuta el script SQL completo
+            conexion.executescript(script_sql)
+
+            # 5. Haz commit de los cambios
+            conexion.commit()
+        else:
+            raise FileNotFoundError(f"No se encontró el archivo SQL: {SQL_FILE_PATH}")
+
+        # 6. Devuelve la conexión
+        return conexion
+
+    except sqlite3.Error as e:
+        print(f"Error al crear la base de datos: {e}")
+        if "conexion" in locals():
+            conexion.close()
+        raise
+
 
 def obtener_libros(conexion: sqlite3.Connection) -> List[Tuple]:
     """
@@ -51,9 +82,30 @@ def obtener_libros(conexion: sqlite3.Connection) -> List[Tuple]:
     # 1. Crea un cursor a partir de la conexión
     # 2. Ejecuta una consulta JOIN para obtener los libros con sus autores
     # 3. Retorna los resultados como una lista de tuplas
-    pass
 
-def agregar_libro(conexion: sqlite3.Connection, titulo: str, anio: int, autor_id: int) -> int:
+    try:
+        # 1. Crear cursor
+        cursor = conexion.cursor()
+
+        # 2. Ejecutar consulta JOIN
+        cursor.execute("""
+            SELECT l.id, l.titulo, l.anio, a.nombre
+            FROM libros l
+            JOIN autores a ON l.autor_id = a.id
+            ORDER BY l.id
+        """)
+
+        # 3. Retornar resultados como lista de tuplas
+        return cursor.fetchall()
+
+    except sqlite3.Error as e:
+        print(f"Error al obtener libros: {e}")
+        return []
+
+
+def agregar_libro(
+    conexion: sqlite3.Connection, titulo: str, anio: int, autor_id: int
+) -> int:
     """
     Agrega un nuevo libro a la base de datos
 
@@ -71,10 +123,39 @@ def agregar_libro(conexion: sqlite3.Connection, titulo: str, anio: int, autor_id
     # 2. Ejecuta una consulta INSERT INTO para añadir el libro
     # 3. Haz commit de los cambios
     # 4. Retorna el ID del nuevo libro (usar cursor.lastrowid)
-    pass
 
-def actualizar_libro(conexion: sqlite3.Connection, libro_id: int, nuevo_titulo: Optional[str] = None,
-                    nuevo_anio: Optional[int] = None, nuevo_autor_id: Optional[int] = None) -> bool:
+    try:
+        # 1. Crear cursor
+        cursor = conexion.cursor()
+
+        # 2. Ejecutar INSERT INTO
+        cursor.execute(
+            """
+            INSERT INTO libros (titulo, anio, autor_id)
+            VALUES (?, ?, ?)
+        """,
+            (titulo, anio, autor_id),
+        )
+
+        # 3. Hacer commit
+        conexion.commit()
+
+        # 4. Retornar ID del nuevo libro
+        return cursor.lastrowid
+
+    except sqlite3.Error as e:
+        print(f"Error al agregar libro: {e}")
+        conexion.rollback()
+        return -1
+
+
+def actualizar_libro(
+    conexion: sqlite3.Connection,
+    libro_id: int,
+    nuevo_titulo: Optional[str] = None,
+    nuevo_anio: Optional[int] = None,
+    nuevo_autor_id: Optional[int] = None,
+) -> bool:
     """
     Actualiza la información de un libro existente
 
@@ -94,7 +175,50 @@ def actualizar_libro(conexion: sqlite3.Connection, libro_id: int, nuevo_titulo: 
     # 3. Prepara la consulta UPDATE con los campos que no son None
     # 4. Ejecuta la consulta y haz commit de los cambios
     # 5. Retorna True si se modificó alguna fila, False en caso contrario
-    pass
+
+    try:
+        # 1. Crear cursor
+        cursor = conexion.cursor()
+
+        # 2. Verificar que el libro existe
+        cursor.execute("SELECT id FROM libros WHERE id = ?", (libro_id,))
+        if cursor.fetchone() is None:
+            return False
+
+        # 3. Preparar consulta UPDATE dinámicamente
+        campos_a_actualizar = []
+        valores = []
+
+        if nuevo_titulo is not None:
+            campos_a_actualizar.append("titulo = ?")
+            valores.append(nuevo_titulo)
+
+        if nuevo_anio is not None:
+            campos_a_actualizar.append("anio = ?")
+            valores.append(nuevo_anio)
+
+        if nuevo_autor_id is not None:
+            campos_a_actualizar.append("autor_id = ?")
+            valores.append(nuevo_autor_id)
+
+        if not campos_a_actualizar:
+            return False  # No hay campos para actualizar
+
+        # 4. Ejecutar consulta y hacer commit
+        consulta = f"UPDATE libros SET {', '.join(campos_a_actualizar)} WHERE id = ?"
+        valores.append(libro_id)
+
+        cursor.execute(consulta, valores)
+        conexion.commit()
+
+        # 5. Retornar True si se modificó alguna fila
+        return cursor.rowcount > 0
+
+    except sqlite3.Error as e:
+        print(f"Error al actualizar libro: {e}")
+        conexion.rollback()
+        return False
+
 
 def obtener_autores(conexion: sqlite3.Connection) -> List[Tuple]:
     """
@@ -110,7 +234,25 @@ def obtener_autores(conexion: sqlite3.Connection) -> List[Tuple]:
     # 1. Crea un cursor a partir de la conexión
     # 2. Ejecuta una consulta SELECT para obtener los autores
     # 3. Retorna los resultados como una lista de tuplas
-    pass
+
+    try:
+        # 1. Crear cursor
+        cursor = conexion.cursor()
+
+        # 2. Ejecutar consulta SELECT
+        cursor.execute("""
+            SELECT id, nombre
+            FROM autores
+            ORDER BY id
+        """)
+
+        # 3. Retornar resultados como lista de tuplas
+        return cursor.fetchall()
+
+    except sqlite3.Error as e:
+        print(f"Error al obtener autores: {e}")
+        return []
+
 
 if __name__ == "__main__":
     try:
@@ -161,7 +303,9 @@ if __name__ == "__main__":
         libro_a_actualizar = nuevo_id
         nuevo_anio = 2023  # Corregir el año de publicación
 
-        actualizado = actualizar_libro(conexion, libro_a_actualizar, nuevo_anio=nuevo_anio)
+        actualizado = actualizar_libro(
+            conexion, libro_a_actualizar, nuevo_anio=nuevo_anio
+        )
         if actualizado:
             print(f"Libro con ID {libro_a_actualizar} actualizado correctamente")
         else:
@@ -179,6 +323,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
     finally:
-        if 'conexion' in locals() and conexion:
+        if "conexion" in locals() and conexion:
             conexion.close()
             print("\nConexión cerrada.")
