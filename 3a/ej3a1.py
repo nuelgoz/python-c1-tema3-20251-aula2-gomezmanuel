@@ -13,19 +13,26 @@ Tareas:
 Este ejercicio se enfoca en las operaciones básicas de SQL desde Python sin utilizar un ORM.
 """
 
-import sqlite3
 import os
+import sqlite3
 
 # Ruta de la base de datos (en memoria para este ejemplo)
 # Para una base de datos en archivo, usar: 'biblioteca.db'
-DB_PATH = ':memory:'
+DB_PATH = ":memory:"
+
 
 def crear_conexion():
     """
     Crea y devuelve una conexión a la base de datos SQLite
     """
     # Implementa la creación de la conexión y retorna el objeto conexión
-    pass
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        return conn
+    except sqlite3.Error as e:
+        print(f"Error al crear la conexión: {e}")
+        return None
+
 
 def crear_tablas(conexion):
     """
@@ -36,7 +43,34 @@ def crear_tablas(conexion):
     """
     # Implementa la creación de tablas usando SQL
     # Usa conexion.cursor() para crear un cursor y ejecutar comandos SQL
-    pass
+    try:
+        cursor = conexion.cursor()
+
+        # Crear tabla autores
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS autores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL
+            )
+        """)
+
+        # Crear tabla libros
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS libros (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titulo TEXT NOT NULL,
+                anio INTEGER,
+                autor_id INTEGER,
+                FOREIGN KEY (autor_id) REFERENCES autores (id)
+            )
+        """)
+
+        conexion.commit()
+
+    except sqlite3.Error as e:
+        print(f"Error al crear las tablas: {e}")
+        conexion.rollback()
+
 
 def insertar_autores(conexion, autores):
     """
@@ -45,7 +79,16 @@ def insertar_autores(conexion, autores):
     """
     # Implementa la inserción de autores usando SQL INSERT
     # Usa consultas parametrizadas para mayor seguridad
-    pass
+    try:
+        cursor = conexion.cursor()
+        cursor.executemany("INSERT INTO autores (nombre) VALUES (?)", autores)
+        conexion.commit()
+        print(f"Se insertaron {len(autores)} autores correctamente.")
+
+    except sqlite3.Error as e:
+        print(f"Error al insertar autores: {e}")
+        conexion.rollback()
+
 
 def insertar_libros(conexion, libros):
     """
@@ -54,7 +97,18 @@ def insertar_libros(conexion, libros):
     """
     # Implementa la inserción de libros usando SQL INSERT
     # Usa consultas parametrizadas para mayor seguridad
-    pass
+    try:
+        cursor = conexion.cursor()
+        cursor.executemany(
+            "INSERT INTO libros (titulo, anio, autor_id) VALUES (?, ?, ?)", libros
+        )
+        conexion.commit()
+        print(f"Se insertaron {len(libros)} libros correctamente.")
+
+    except sqlite3.Error as e:
+        print(f"Error al insertar libros: {e}")
+        conexion.rollback()
+
 
 def consultar_libros(conexion):
     """
@@ -62,7 +116,24 @@ def consultar_libros(conexion):
     """
     # Implementa una consulta SQL JOIN para obtener libros con sus autores
     # Imprime los resultados formateados
-    pass
+    try:
+        cursor = conexion.cursor()
+        cursor.execute("""
+            SELECT l.titulo, l.anio, a.nombre
+            FROM libros l
+            JOIN autores a ON l.autor_id = a.id
+            ORDER BY l.titulo
+        """)
+
+        libros = cursor.fetchall()
+
+        print("\n=== LIBROS CON SUS AUTORES ===")
+        for titulo, anio, autor in libros:
+            print(f"- {titulo} ({anio}) - {autor}")
+
+    except sqlite3.Error as e:
+        print(f"Error al consultar libros: {e}")
+
 
 def buscar_libros_por_autor(conexion, nombre_autor):
     """
@@ -70,7 +141,25 @@ def buscar_libros_por_autor(conexion, nombre_autor):
     """
     # Implementa una consulta SQL con WHERE para filtrar por autor
     # Retorna una lista de tuplas (titulo, anio)
-    pass
+    try:
+        cursor = conexion.cursor()
+        cursor.execute(
+            """
+            SELECT l.titulo, l.anio
+            FROM libros l
+            JOIN autores a ON l.autor_id = a.id
+            WHERE a.nombre = ?
+        """,
+            (nombre_autor,),
+        )
+
+        libros = cursor.fetchall()
+        return libros
+
+    except sqlite3.Error as e:
+        print(f"Error al buscar libros por autor: {e}")
+        return []
+
 
 def actualizar_libro(conexion, id_libro, nuevo_titulo=None, nuevo_anio=None):
     """
@@ -78,14 +167,61 @@ def actualizar_libro(conexion, id_libro, nuevo_titulo=None, nuevo_anio=None):
     """
     # Implementa la actualización usando SQL UPDATE
     # Solo actualiza los campos que no son None
-    pass
+    try:
+        cursor = conexion.cursor()
+
+        # Construir la consulta dinámicamente según qué campos actualizar
+        campos_a_actualizar = []
+        valores = []
+
+        if nuevo_titulo is not None:
+            campos_a_actualizar.append("titulo = ?")
+            valores.append(nuevo_titulo)
+
+        if nuevo_anio is not None:
+            campos_a_actualizar.append("anio = ?")
+            valores.append(nuevo_anio)
+
+        if campos_a_actualizar:
+            consulta = (
+                f"UPDATE libros SET {', '.join(campos_a_actualizar)} WHERE id = ?"
+            )
+            valores.append(id_libro)
+
+            cursor.execute(consulta, valores)
+            conexion.commit()
+
+            if cursor.rowcount > 0:
+                print(f"Libro con ID {id_libro} actualizado correctamente.")
+            else:
+                print(f"No se encontró ningún libro con ID {id_libro}.")
+        else:
+            print("No se proporcionaron campos para actualizar.")
+
+    except sqlite3.Error as e:
+        print(f"Error al actualizar libro: {e}")
+        conexion.rollback()
+
 
 def eliminar_libro(conexion, id_libro):
     """
     Elimina un libro por su ID
     """
     # Implementa la eliminación usando SQL DELETE
-    pass
+    try:
+        cursor = conexion.cursor()
+        cursor.execute("DELETE FROM libros WHERE id = ?", (id_libro,))
+        conexion.commit()
+
+        if cursor.rowcount > 0:
+            print(f"Libro con ID {id_libro} eliminado correctamente.")
+        else:
+            print(f"No se encontró ningún libro con ID {id_libro}.")
+
+    except sqlite3.Error as e:
+        print(f"Error al eliminar libro: {e}")
+        conexion.rollback()
+
 
 def ejemplo_transaccion(conexion):
     """
@@ -96,7 +232,33 @@ def ejemplo_transaccion(conexion):
     # 2. Realice varias operaciones
     # 3. Si todo está bien, confirma con conexion.commit()
     # 4. En caso de error, revierte con conexion.rollback()
-    pass
+    try:
+        cursor = conexion.cursor()
+
+        # Comenzar transacción
+        conexion.execute("BEGIN TRANSACTION")
+
+        # Agregar un nuevo autor
+        cursor.execute(
+            "INSERT INTO autores (nombre) VALUES (?)", ("Mario Vargas Llosa",)
+        )
+        nuevo_autor_id = cursor.lastrowid
+
+        # Agregar un libro para ese autor
+        cursor.execute(
+            "INSERT INTO libros (titulo, anio, autor_id) VALUES (?, ?, ?)",
+            ("La ciudad y los perros", 1963, nuevo_autor_id),
+        )
+
+        # Confirmar transacción
+        conexion.commit()
+        print("Transacción completada: Se agregó 'Mario Vargas Llosa' y su libro.")
+
+    except sqlite3.Error as e:
+        print(f"Error en la transacción: {e}")
+        conexion.rollback()
+        print("Transacción revertida.")
+
 
 if __name__ == "__main__":
     try:
@@ -110,7 +272,7 @@ if __name__ == "__main__":
         autores = [
             ("Gabriel García Márquez",),
             ("Isabel Allende",),
-            ("Jorge Luis Borges",)
+            ("Jorge Luis Borges",),
         ]
         insertar_autores(conexion, autores)
         print("Autores insertados correctamente")
@@ -122,7 +284,7 @@ if __name__ == "__main__":
             ("La casa de los espíritus", 1982, 2),
             ("Paula", 1994, 2),
             ("Ficciones", 1944, 3),
-            ("El Aleph", 1949, 3)
+            ("El Aleph", 1949, 3),
         ]
         insertar_libros(conexion, libros)
         print("Libros insertados correctamente")
@@ -138,7 +300,9 @@ if __name__ == "__main__":
             print(f"- {titulo} ({anio})")
 
         print("\n--- Actualización de un libro ---")
-        actualizar_libro(conexion, 1, nuevo_titulo="Cien años de soledad (Edición especial)")
+        actualizar_libro(
+            conexion, 1, nuevo_titulo="Cien años de soledad (Edición especial)"
+        )
         print("Libro actualizado. Nueva información:")
         consultar_libros(conexion)
 
