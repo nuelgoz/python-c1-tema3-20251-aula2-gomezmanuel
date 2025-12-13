@@ -11,14 +11,15 @@ que incluyen productos, vendedores, regiones y ventas. Debes analizar estos dato
 usando diferentes técnicas.
 """
 
-import sqlite3
-import pandas as pd
-import os
 import json
-from typing import List, Dict, Any, Optional, Tuple, Union
+import os
+import sqlite3
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-# Ruta a la base de datos SQLite
-DB_PATH = os.path.join(os.path.dirname(__file__), 'ventas_comerciales.db')
+import pandas as pd
+
+DB_PATH = os.path.join(os.path.dirname(__file__), "ventas_comerciales.db")
+
 
 def conectar_bd() -> sqlite3.Connection:
     """
@@ -32,7 +33,25 @@ def conectar_bd() -> sqlite3.Connection:
     # 2. Conecta a la base de datos
     # 3. Configura la conexión para que devuelva las filas como diccionarios (opcional)
     # 4. Retorna la conexión
-    pass
+
+    try:
+        # 1. Verificar que el archivo de base de datos existe (o intentar conectar de todas formas)
+        # if not os.path.exists(DB_PATH):
+        #     raise FileNotFoundError(f"No se encontró el archivo de base de datos: {DB_PATH}")
+
+        # 2. Conecta a la base de datos (se creará si no existe)
+        conexion = sqlite3.connect(DB_PATH)
+
+        # 3. Configurar la conexión para que devuelva las filas como diccionarios
+        conexion.row_factory = sqlite3.Row
+
+        # 4. Retorna la conexión
+        return conexion
+
+    except sqlite3.Error as e:
+        print(f"Error al conectar con la base de datos: {e}")
+        raise
+
 
 def convertir_a_json(conexion: sqlite3.Connection) -> Dict[str, List[Dict[str, Any]]]:
     """
@@ -54,7 +73,45 @@ def convertir_a_json(conexion: sqlite3.Connection) -> Dict[str, List[Dict[str, A
     #    c. Convierte cada fila a un diccionario (clave: nombre columna, valor: valor celda)
     #    d. Añade el diccionario a una lista para esa tabla
     # 4. Retorna el diccionario completo con todas las tablas
-    pass
+
+    try:
+        # 1. Crear un diccionario vacío para almacenar el resultado
+        datos_json = {}
+
+        # 2. Obtener la lista de tablas de la base de datos
+        cursor = conexion.cursor()
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';"
+        )
+        tablas = [tabla[0] for tabla in cursor.fetchall()]
+
+        # 3. Para cada tabla:
+        for tabla in tablas:
+            # 3a. Ejecutar una consulta SELECT * FROM tabla
+            cursor.execute(f"SELECT * FROM {tabla}")
+            filas = cursor.fetchall()
+
+            # 3b. Obtener los nombres de las columnas
+            columnas = [descripcion[0] for descripcion in cursor.description]
+
+            # 3c. Convertir cada fila a un diccionario
+            registros = []
+            for fila in filas:
+                registro = {}
+                for i, columna in enumerate(columnas):
+                    registro[columna] = fila[i]
+                registros.append(registro)
+
+            # 3d. Añadir el diccionario a una lista para esa tabla
+            datos_json[tabla] = registros
+
+        # 4. Retornar el diccionario completo con todas las tablas
+        return datos_json
+
+    except sqlite3.Error as e:
+        print(f"Error al convertir datos a JSON: {e}")
+        return {}
+
 
 def convertir_a_dataframes(conexion: sqlite3.Connection) -> Dict[str, pd.DataFrame]:
     """
@@ -76,7 +133,60 @@ def convertir_a_dataframes(conexion: sqlite3.Connection) -> Dict[str, pd.DataFra
     #    - Ventas con información de vendedores
     #    - Vendedores con regiones
     # 5. Retorna el diccionario con todos los DataFrames
-    pass
+
+    try:
+        # 1. Crear diccionario vacío para los DataFrames
+        dataframes = {}
+
+        # 2. Obtener lista de tablas de la base de datos
+        cursor = conexion.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tablas = cursor.fetchall()
+        nombres_tablas = [tabla[0] for tabla in tablas]
+
+        # 3. Para cada tabla, crear DataFrame usando pd.read_sql_query
+        for nombre_tabla in nombres_tablas:
+            query = f"SELECT * FROM {nombre_tabla}"
+            df = pd.read_sql_query(query, conexion)
+            dataframes[nombre_tabla] = df
+
+        # 4. Añadir consultas JOIN para relaciones importantes:
+
+        # - Ventas con información de productos
+        query_ventas_productos = """
+            SELECT v.*, p.nombre as producto_nombre, p.categoria, p.precio_unitario
+            FROM ventas v
+            JOIN productos p ON v.producto_id = p.id
+        """
+        df_ventas_productos = pd.read_sql_query(query_ventas_productos, conexion)
+        dataframes["ventas_productos"] = df_ventas_productos
+
+        # - Ventas con información de vendedores
+        query_ventas_vendedores = """
+            SELECT v.*, vd.nombre as vendedor_nombre, r.nombre as region_nombre, r.pais
+            FROM ventas v
+            JOIN vendedores vd ON v.vendedor_id = vd.id
+            JOIN regiones r ON vd.region_id = r.id
+        """
+        df_ventas_vendedores = pd.read_sql_query(query_ventas_vendedores, conexion)
+        dataframes["ventas_vendedores"] = df_ventas_vendedores
+
+        # - Vendedores con regiones
+        query_vendedores_regiones = """
+            SELECT vd.*, r.nombre as region_nombre, r.pais
+            FROM vendedores vd
+            JOIN regiones r ON vd.region_id = r.id
+        """
+        df_vendedores_regiones = pd.read_sql_query(query_vendedores_regiones, conexion)
+        dataframes["vendedores_regiones"] = df_vendedores_regiones
+
+        # 5. Retornar el diccionario con todos los DataFrames
+        return dataframes
+
+    except Exception as e:
+        print(f"Error al convertir datos a DataFrames: {e}")
+        return {}
+
 
 if __name__ == "__main__":
     try:
@@ -123,6 +233,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
     finally:
-        if 'conexion' in locals() and conexion:
+        if "conexion" in locals() and conexion:
             conexion.close()
             print("\nConexión cerrada.")
